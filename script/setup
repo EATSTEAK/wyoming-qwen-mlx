@@ -1,38 +1,83 @@
-#!/usr/bin/env python3
-import argparse
-import subprocess
-import venv
-from pathlib import Path
+#!/usr/bin/env bash
+set -e
 
-_DIR = Path(__file__).parent
-_PROGRAM_DIR = _DIR.parent
-_VENV_DIR = _PROGRAM_DIR / ".venv"
+# Setup script using uv for faster installation
+# Falls back to pip if uv is not available
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--dev", action="store_true", help="Install dev requirements")
-parser.add_argument("--zh", action="store_true", help="Install Chinese requirements")
-args = parser.parse_args()
+cd "$(dirname "$0")/.."
 
-# Create virtual environment
-builder = venv.EnvBuilder(with_pip=True)
-context = builder.ensure_directories(_VENV_DIR)
-builder.create(_VENV_DIR)
+# Check platform
+if [[ $(uname -m) != "arm64" ]]; then
+    echo "Warning: This package requires Apple Silicon (M1/M2/M3/M4)"
+    echo "Detected platform: $(uname -m)"
+    exit 1
+fi
 
-# Upgrade dependencies
-pip = [context.env_exe, "-m", "pip"]
-subprocess.check_call(pip + ["install", "--upgrade", "pip"])
-subprocess.check_call(pip + ["install", "--upgrade", "setuptools", "wheel"])
+# Parse arguments
+DEV_FLAG=""
+ZEROCONF_FLAG=""
 
-extras = []
-if args.dev:
-    extras.append("dev")
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --dev)
+            DEV_FLAG="[dev]"
+            shift
+            ;;
+        --zeroconf)
+            ZEROCONF_FLAG="[zeroconf]"
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: $0 [--dev] [--zeroconf]"
+            exit 1
+            ;;
+    esac
+done
 
-if args.zh:
-    extras.append("zh")
+# Combine extras
+EXTRAS="${DEV_FLAG}${ZEROCONF_FLAG}"
+if [[ -n "$DEV_FLAG" && -n "$ZEROCONF_FLAG" ]]; then
+    EXTRAS="[dev,zeroconf]"
+fi
 
-extras_str = ""
-if extras:
-    extras_str = "[" + ",".join(extras) + "]"
+# Try to use uv first
+if command -v uv &> /dev/null; then
+    echo "Using uv for fast installation..."
 
-# Install requirements
-subprocess.check_call(pip + ["install", "-e", f"{_PROGRAM_DIR}{extras_str}"])
+    # Create venv if it doesn't exist
+    if [[ ! -d .venv ]]; then
+        uv venv
+    fi
+
+    # Install with uv
+    uv pip install -e ".${EXTRAS}"
+
+    echo ""
+    echo "Installation complete with uv!"
+else
+    # Fallback to traditional pip
+    echo "uv not found, using pip..."
+    echo "Install uv for faster setup: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    echo ""
+
+    # Create venv
+    if [[ ! -d .venv ]]; then
+        python3 -m venv .venv
+    fi
+
+    # Activate and install
+    source .venv/bin/activate
+    pip install --upgrade pip setuptools wheel
+    pip install -e ".${EXTRAS}"
+
+    echo ""
+    echo "Installation complete with pip!"
+fi
+
+echo ""
+echo "To activate the environment:"
+echo "  source .venv/bin/activate"
+echo ""
+echo "To run wyoming-qwen:"
+echo "  wyoming-qwen --speaker Ryan --data-dir /tmp/wyoming-qwen --uri tcp://0.0.0.0:10200"

@@ -1,18 +1,19 @@
 [project]
-name = "wyoming-piper"
-version = "2.2.2"
-description = "Wyoming Server for Piper"
+name = "wyoming-qwen"
+version = "1.0.0"
+description = "Wyoming Server for Qwen3-TTS (MLX)"
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
 authors = [
     {name = "Michael Hansen", email = "mike@rhasspy.org"}
 ]
-keywords = ["rhasspy", "wyoming", "piper", "tts"]
+keywords = ["rhasspy", "wyoming", "qwen", "tts", "mlx", "apple-silicon"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Operating System :: MacOS",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -22,22 +23,24 @@ classifiers = [
 dependencies = [
     "wyoming>=1.8,<2",
     "regex>=2024.11.6",
-    "piper-tts>=1.4.1,<2",
+    "mlx-audio>=0.1.0",
+    "mlx>=0.20.0",
+    "numpy>=1.20,<2",
     "sentence-stream>=1.2.0,<2",
 ]
 
 [project.urls]
-Homepage = "http://github.com/rhasspy/wyoming-piper"
+Homepage = "http://github.com/rhasspy/wyoming-qwen"
 
 [project.scripts]
-wyoming-piper = "wyoming_piper.__main__:run"
+wyoming-qwen = "wyoming_piper.__main__:run"
 
 [tool.setuptools.packages.find]
 include = ["wyoming_piper"]
 exclude = ["tests", "tests.*"]
 
 [tool.setuptools.package-data]
-wyoming_piper = ["voices.json"]
+wyoming_piper = ["speakers.json"]
 
 [build-system]
 requires = ["setuptools>=42", "wheel"]
@@ -66,12 +69,8 @@ dev = [
     "pytest-asyncio",
     "build",
     "scipy>=1.10,<2",
-    "numpy>=1.20,<2",
     "python-speech-features>=0.6,<1",
 ]
 zeroconf = [
     "wyoming[zeroconf]",
-]
-zh = [
-    "piper-tts[zh]",
 ]

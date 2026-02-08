@@ -38,9 +38,19 @@ async def test_model_loading():
             # Check available methods
             has_generate = hasattr(model, "generate")
             has_generate_custom = hasattr(model, "generate_custom_voice")
+            has_generate_design = hasattr(model, "generate_voice_design")
 
             _LOGGER.info(f"  - has generate(): {has_generate}")
             _LOGGER.info(f"  - has generate_custom_voice(): {has_generate_custom}")
+            _LOGGER.info(f"  - has generate_voice_design(): {has_generate_design}")
+
+            # Verify correct method for each mode
+            if mode == "clone-voice" and not has_generate:
+                _LOGGER.warning(f"  ⚠ clone-voice mode requires generate() method")
+            elif mode == "voice-design" and not has_generate_design:
+                _LOGGER.warning(f"  ⚠ voice-design mode requires generate_voice_design() method")
+            elif mode == "custom-voice" and not has_generate_custom:
+                _LOGGER.warning(f"  ⚠ custom-voice mode requires generate_custom_voice() method")
 
         except Exception as e:
             _LOGGER.error(f"✗ Failed to load model for {mode}: {e}")
@@ -179,14 +189,15 @@ async def test_generation(quick_test: bool = True):
         if speakers:
             speaker_name = list(speakers.keys())[0]
             speaker_config = speakers[speaker_name]
-            _LOGGER.info(f"   Using speaker: {speaker_name}")
+            _LOGGER.info(f"   Using voice design: {speaker_name}")
+            _LOGGER.info(f"   Instruct: {speaker_config.get('instruct', '')}")
 
+            # Voice design uses instruct to describe voice characteristics
             results = list(
-                model.generate_custom_voice(
+                model.generate_voice_design(
                     text=test_text,
-                    speaker=speaker_name,
                     language=speaker_config.get("languages", ["English"])[0],
-                    instruct=speaker_config.get("instruct", ""),
+                    instruct=speaker_config.get("instruct", "A warm and friendly voice"),
                     temperature=0.9,
                     top_p=1.0,
                     max_tokens=4096,

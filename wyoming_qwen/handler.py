@@ -282,19 +282,18 @@ class Qwen3EventHandler(AsyncEventHandler):
                 ),
             )
         elif self.voice_mode == "voice-design":
-            # Voice design mode: VoiceDesign model with generate_custom_voice()
+            # Voice design mode: VoiceDesign model with generate_voice_design() function
             # Note: VoiceDesign uses instruct for voice characteristics description
             _LOGGER.debug(
-                "Using VoiceDesign model generate_custom_voice() with speaker=%s",
-                speaker_name,
+                "Using VoiceDesign model generate_voice_design() with instruct=%s",
+                gen_params["instruct"],
             )
 
             results = await loop.run_in_executor(
                 None,
                 lambda: list(
-                    model.generate_custom_voice(
+                    model.generate_voice_design(
                         text=gen_params["text"],
-                        speaker=speaker_name,
                         language=gen_params["language"],
                         instruct=gen_params["instruct"],
                         temperature=gen_params["temperature"],

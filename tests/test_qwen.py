@@ -59,6 +59,14 @@ async def test_describe() -> None:
     # Create Wyoming Info
     from wyoming.info import Attribution, TtsProgram, TtsVoice, TtsVoiceSpeaker
 
+    # Language code mapping
+    language_map = {
+        "English": "en-US",
+        "Chinese": "zh-CN",
+        "Japanese": "ja-JP",
+        "Korean": "ko-KR",
+    }
+
     voices = [
         TtsVoice(
             name=speaker_name,
@@ -68,7 +76,10 @@ async def test_describe() -> None:
             ),
             installed=True,
             version=None,
-            languages=[lang.lower() for lang in speaker_info["languages"]],
+            languages=[
+                language_map.get(lang, lang.lower())
+                for lang in speaker_info["languages"]
+            ],
             speakers=[TtsVoiceSpeaker(name=speaker_name)],
         )
         for speaker_name, speaker_info in speakers_info.items()
@@ -274,7 +285,7 @@ async def test_audio_generation() -> None:
             ),
             installed=True,
             version=None,
-            languages=["english"],
+            languages=["en-US"],  # BCP 47 language code
             speakers=[TtsVoiceSpeaker(name="Ryan")],
         )
     ]

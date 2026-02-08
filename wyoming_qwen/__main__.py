@@ -15,6 +15,14 @@ from .handler import Qwen3EventHandler
 
 _LOGGER = logging.getLogger(__name__)
 
+# Language name to BCP 47 language code mapping
+LANGUAGE_CODE_MAP = {
+    "English": "en-US",
+    "Chinese": "zh-CN",
+    "Japanese": "ja-JP",
+    "Korean": "ko-KR",
+}
+
 
 async def main() -> None:
     """Main entry point."""
@@ -115,7 +123,10 @@ async def main() -> None:
             ),
             installed=True,
             version=None,
-            languages=[lang.lower() for lang in speaker_info["languages"]],
+            languages=[
+                LANGUAGE_CODE_MAP.get(lang, lang.lower())
+                for lang in speaker_info["languages"]
+            ],
             speakers=[TtsVoiceSpeaker(name=speaker_name)],
         )
         for speaker_name, speaker_info in speakers_info.items()

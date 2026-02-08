@@ -1,0 +1,56 @@
+{
+  "Ryan": {
+    "name": "Ryan",
+    "gender": "male",
+    "languages": ["English"],
+    "description": "Dynamic male voice with strong rhythmic drive"
+  },
+  "Aiden": {
+    "name": "Aiden",
+    "gender": "male",
+    "languages": ["English"],
+    "description": "Sunny American male, clear midrange"
+  },
+  "Vivian": {
+    "name": "Vivian",
+    "gender": "female",
+    "languages": ["Chinese", "English"],
+    "description": "Bright, slightly edgy young female voice"
+  },
+  "Serena": {
+    "name": "Serena",
+    "gender": "female",
+    "languages": ["Chinese"],
+    "description": "Warm, gentle young female voice"
+  },
+  "Uncle_Fu": {
+    "name": "Uncle_Fu",
+    "gender": "male",
+    "languages": ["Chinese"],
+    "description": "Seasoned male with low, mellow timbre"
+  },
+  "Dylan": {
+    "name": "Dylan",
+    "gender": "male",
+    "languages": ["Chinese"],
+    "description": "Youthful Beijing male, clear and natural"
+  },
+  "Eric": {
+    "name": "Eric",
+    "gender": "male",
+    "languages": ["Chinese"],
+    "description": "Lively Chengdu male, slightly husky"
+  },
+  "Ono_Anna": {
+    "name": "Ono_Anna",
+    "gender": "female",
+    "languages": ["Japanese"],
+    "description": "Playful Japanese female, light and nimble"
+  },
+  "Sohee": {
+    "name": "Sohee",
+    "gender": "female",
+    "languages": ["Korean"],
+    "description": "Warm Korean female with rich emotion"
+  }
+}

@@ -4,11 +4,9 @@ import argparse
 import asyncio
 import logging
 import math
-import tempfile
-import wave
 from typing import Any, Dict, Optional
 
-from piper import PiperVoice, SynthesisConfig
+import numpy as np
 from sentence_stream import SentenceBoundaryDetector
 from wyoming.audio import AudioChunk, AudioStart, AudioStop
 from wyoming.error import Error
@@ -23,22 +21,23 @@ from wyoming.tts import (
     SynthesizeStopped,
 )
 
-from .download import ensure_voice_exists, find_voice
+from .const import MLX_MODEL_PATH, MLX_SAMPLE_RATE
 
 _LOGGER = logging.getLogger(__name__)
 
-# Keep the most recently used voice loaded
-_VOICE: Optional[PiperVoice] = None
-_VOICE_NAME: Optional[str] = None
-_VOICE_LOCK = asyncio.Lock()
+# Keep the model loaded (lazy loading)
+_MODEL: Optional[Any] = None
+_MODEL_LOCK = asyncio.Lock()
 
 
-class PiperEventHandler(AsyncEventHandler):
+class Qwen3EventHandler(AsyncEventHandler):
+    """Wyoming event handler for Qwen3-TTS (MLX)."""
+
     def __init__(
         self,
         wyoming_info: Info,
         cli_args: argparse.Namespace,
-        voices_info: Dict[str, Any],
+        speakers_info: Dict[str, Any],
         *args,
         **kwargs,
     ) -> None:
@@ -46,7 +45,7 @@ class PiperEventHandler(AsyncEventHandler):
 
         self.cli_args = cli_args
         self.wyoming_info_event = wyoming_info.event()
-        self.voices_info = voices_info
+        self.speakers_info = speakers_info
         self.is_streaming: Optional[bool] = None
         self.sbd = SentenceBoundaryDetector()
         self._synthesize: Optional[Synthesize] = None
@@ -136,10 +135,20 @@ class PiperEventHandler(AsyncEventHandler):
             )
             raise err
 
+    def _validate_speaker(self, speaker_name: str) -> bool:
+        """Check if speaker exists in speakers.json."""
+        return speaker_name in self.speakers_info
+
+    def _get_language_for_speaker(self, speaker_name: str) -> str:
+        """Get primary language for speaker."""
+        speaker_info = self.speakers_info.get(speaker_name, {})
+        languages = speaker_info.get("languages", ["English"])
+        return languages[0]  # Return first/primary language
+
     async def _handle_synthesize(
         self, synthesize: Synthesize, send_start: bool = True, send_stop: bool = True
     ) -> bool:
-        global _VOICE, _VOICE_NAME
+        global _MODEL
 
         _LOGGER.debug(synthesize)
 
@@ -159,118 +168,112 @@ class PiperEventHandler(AsyncEventHandler):
             if not has_punctuation:
                 text = text + self.cli_args.auto_punctuation[0]
 
-        # Resolve voice
+        # Resolve speaker
         _LOGGER.debug("synthesize: raw_text=%s, text='%s'", raw_text, text)
-        voice_name: Optional[str] = None
-        voice_speaker: Optional[str] = None
+        speaker_name: Optional[str] = None
         if synthesize.voice is not None:
-            voice_name = synthesize.voice.name
-            voice_speaker = synthesize.voice.speaker
+            speaker_name = synthesize.voice.name
 
-        if voice_name is None:
-            # Default voice
-            voice_name = self.cli_args.voice
-
-        if voice_name == self.cli_args.voice:
+        if speaker_name is None:
             # Default speaker
-            voice_speaker = voice_speaker or self.cli_args.speaker
+            speaker_name = self.cli_args.speaker
 
-        assert voice_name is not None
+        assert speaker_name is not None
 
-        # Resolve alias
-        voice_info = self.voices_info.get(voice_name, {})
-        voice_name = voice_info.get("key", voice_name)
-        assert voice_name is not None
+        # Validate speaker
+        if not self._validate_speaker(speaker_name):
+            raise ValueError(
+                f"Unknown speaker: {speaker_name}. "
+                f"Available speakers: {list(self.speakers_info.keys())}"
+            )
 
-        with tempfile.NamedTemporaryFile(mode="wb+", suffix=".wav") as output_file:
-            async with _VOICE_LOCK:
-                if voice_name != _VOICE_NAME:
-                    # Load new voice
-                    _LOGGER.debug("Loading voice: %s", _VOICE_NAME)
-                    ensure_voice_exists(
-                        voice_name,
-                        self.cli_args.data_dir,
-                        self.cli_args.download_dir,
-                        self.voices_info,
-                    )
-                    model_path, config_path = find_voice(
-                        voice_name, self.cli_args.data_dir
-                    )
-                    _VOICE = PiperVoice.load(
-                        model_path, config_path, use_cuda=self.cli_args.use_cuda
-                    )
-                    _VOICE_NAME = voice_name
+        # Get language for speaker
+        language = self._get_language_for_speaker(speaker_name)
 
-                assert _VOICE is not None
+        # Load model (lazy loading)
+        async with _MODEL_LOCK:
+            if _MODEL is None:
+                _LOGGER.info("Loading Qwen3-TTS model: %s", MLX_MODEL_PATH)
+                # Import here to avoid issues if mlx not available at module level
+                from mlx_audio.tts import load
 
-                syn_config = SynthesisConfig()
-                if voice_speaker is not None:
-                    syn_config.speaker_id = _VOICE.config.speaker_id_map.get(
-                        voice_speaker
-                    )
-                    if syn_config.speaker_id is None:
-                        try:
-                            # Try to interpret as an id
-                            syn_config.speaker_id = int(voice_speaker)
-                        except ValueError:
-                            pass
+                loop = asyncio.get_event_loop()
+                _MODEL = await loop.run_in_executor(None, load, MLX_MODEL_PATH)
+                _LOGGER.info("Model loaded successfully")
 
-                    if syn_config.speaker_id is None:
-                        _LOGGER.warning(
-                            "No speaker '%s' for voice '%s'", voice_speaker, voice_name
-                        )
+        assert _MODEL is not None
 
-                if self.cli_args.length_scale is not None:
-                    syn_config.length_scale = self.cli_args.length_scale
+        # Generate audio
+        _LOGGER.debug(
+            "Generating audio: speaker=%s, language=%s, text=%s",
+            speaker_name,
+            language,
+            text,
+        )
 
-                if self.cli_args.noise_scale is not None:
-                    syn_config.noise_scale = self.cli_args.noise_scale
+        # Run synthesis in executor to avoid blocking event loop
+        loop = asyncio.get_event_loop()
+        results = await loop.run_in_executor(
+            None,
+            lambda: list(
+                _MODEL.generate_custom_voice(
+                    text=text,
+                    speaker=speaker_name,
+                    language=language,
+                    instruct="",
+                    temperature=self.cli_args.temperature,
+                    top_k=self.cli_args.top_k,
+                    top_p=self.cli_args.top_p,
+                    repetition_penalty=self.cli_args.repetition_penalty,
+                    max_tokens=self.cli_args.max_tokens,
+                    stream=False,
+                )
+            ),
+        )
 
-                if self.cli_args.noise_w_scale is not None:
-                    syn_config.noise_w_scale = self.cli_args.noise_w_scale
+        if not results:
+            raise RuntimeError("No audio generated")
 
-                wav_writer: wave.Wave_write = wave.open(output_file, "wb")
-                with wav_writer:
-                    _VOICE.synthesize_wav(text, wav_writer, syn_config)
+        result = results[0]
+        audio_mx = result.audio  # mx.array
+        sample_rate = result.sample_rate  # Should be 24000
 
-            output_file.seek(0)
+        # Convert MLX array to numpy
+        audio_np = np.array(audio_mx)
 
-            wav_file: wave.Wave_read = wave.open(output_file, "rb")
-            with wav_file:
-                rate = wav_file.getframerate()
-                width = wav_file.getsampwidth()
-                channels = wav_file.getnchannels()
+        # Convert float32 [-1, 1] to int16 PCM
+        audio_int16 = (audio_np * 32767).astype(np.int16)
+        audio_bytes = audio_int16.tobytes()
 
-                if send_start:
-                    await self.write_event(
-                        AudioStart(
-                            rate=rate,
-                            width=width,
-                            channels=channels,
-                        ).event(),
-                    )
+        # Send audio events
+        if send_start:
+            await self.write_event(
+                AudioStart(
+                    rate=sample_rate,
+                    width=2,  # int16
+                    channels=1,  # mono
+                ).event(),
+            )
 
-                # Audio
-                audio_bytes = wav_file.readframes(wav_file.getnframes())
-                bytes_per_sample = width * channels
-                bytes_per_chunk = bytes_per_sample * self.cli_args.samples_per_chunk
-                num_chunks = int(math.ceil(len(audio_bytes) / bytes_per_chunk))
+        # Split into chunks
+        bytes_per_sample = 2  # int16
+        bytes_per_chunk = bytes_per_sample * self.cli_args.samples_per_chunk
+        num_chunks = int(math.ceil(len(audio_bytes) / bytes_per_chunk))
 
-                # Split into chunks
-                for i in range(num_chunks):
-                    offset = i * bytes_per_chunk
-                    chunk = audio_bytes[offset : offset + bytes_per_chunk]
+        for i in range(num_chunks):
+            offset = i * bytes_per_chunk
+            chunk = audio_bytes[offset : offset + bytes_per_chunk]
 
-                    await self.write_event(
-                        AudioChunk(
-                            audio=chunk,
-                            rate=rate,
-                            width=width,
-                            channels=channels,
-                        ).event(),
-                    )
+            await self.write_event(
+                AudioChunk(
+                    audio=chunk,
+                    rate=sample_rate,
+                    width=2,
+                    channels=1,
+                ).event(),
+            )
 
-            if send_stop:
-                await self.write_event(AudioStop().event())
+        if send_stop:
+            await self.write_event(AudioStop().event())
 
         return True

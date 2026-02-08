@@ -98,17 +98,22 @@ async def test_speaker_configs():
 
 
 async def test_generation(quick_test: bool = True):
-    """Test audio generation for each mode."""
+    """Test audio generation for each mode and save as WAV files."""
     _LOGGER.info("\n" + "=" * 60)
     _LOGGER.info("Testing Audio Generation")
     _LOGGER.info("=" * 60)
 
     if quick_test:
-        _LOGGER.info("(Running quick test - will only verify function calls work)")
+        _LOGGER.info("(Generating audio and saving as WAV files)")
+
+    import numpy as np
+    import wave
 
     from mlx_audio.tts.utils import load_model
 
     test_text = "Hello, this is a test."
+    output_dir = Path("output")
+    output_dir.mkdir(exist_ok=True)
 
     # Test custom-voice mode
     _LOGGER.info("\n1. Testing custom-voice mode")
@@ -138,7 +143,25 @@ async def test_generation(quick_test: bool = True):
             )
             _LOGGER.info(f"   ✓ Generated {len(results)} audio result(s)")
             if results:
-                _LOGGER.info(f"   ✓ Audio shape: {results[0].audio.shape}")
+                result = results[0]
+                audio_mx = result.audio
+                sample_rate = result.sample_rate
+
+                _LOGGER.info(f"   ✓ Audio shape: {audio_mx.shape}")
+
+                # Convert MLX array to numpy and then to int16 PCM
+                audio_np = np.array(audio_mx)
+                audio_int16 = (audio_np * 32767).astype(np.int16)
+
+                # Save as WAV file
+                wav_file = output_dir / f"test_{mode}_{speaker_name}.wav"
+                with wave.open(str(wav_file), "wb") as wav:
+                    wav.setnchannels(1)  # mono
+                    wav.setsampwidth(2)  # 16-bit
+                    wav.setframerate(sample_rate)
+                    wav.writeframes(audio_int16.tobytes())
+
+                _LOGGER.info(f"   ✓ Saved to: {wav_file.absolute()}")
         else:
             _LOGGER.warning("   ⚠ No speakers found, skipping")
     except Exception as e:
@@ -174,7 +197,25 @@ async def test_generation(quick_test: bool = True):
             )
             _LOGGER.info(f"   ✓ Generated {len(results)} audio result(s)")
             if results:
-                _LOGGER.info(f"   ✓ Audio shape: {results[0].audio.shape}")
+                result = results[0]
+                audio_mx = result.audio
+                sample_rate = result.sample_rate
+
+                _LOGGER.info(f"   ✓ Audio shape: {audio_mx.shape}")
+
+                # Convert MLX array to numpy and then to int16 PCM
+                audio_np = np.array(audio_mx)
+                audio_int16 = (audio_np * 32767).astype(np.int16)
+
+                # Save as WAV file
+                wav_file = output_dir / f"test_{mode}_{speaker_name}.wav"
+                with wave.open(str(wav_file), "wb") as wav:
+                    wav.setnchannels(1)  # mono
+                    wav.setsampwidth(2)  # 16-bit
+                    wav.setframerate(sample_rate)
+                    wav.writeframes(audio_int16.tobytes())
+
+                _LOGGER.info(f"   ✓ Saved to: {wav_file.absolute()}")
         else:
             _LOGGER.warning("   ⚠ No speakers found, skipping")
     except Exception as e:
@@ -209,7 +250,25 @@ async def test_generation(quick_test: bool = True):
                 )
                 _LOGGER.info(f"   ✓ Generated {len(results)} audio result(s)")
                 if results:
-                    _LOGGER.info(f"   ✓ Audio shape: {results[0].audio.shape}")
+                    result = results[0]
+                    audio_mx = result.audio
+                    sample_rate = result.sample_rate
+
+                    _LOGGER.info(f"   ✓ Audio shape: {audio_mx.shape}")
+
+                    # Convert MLX array to numpy and then to int16 PCM
+                    audio_np = np.array(audio_mx)
+                    audio_int16 = (audio_np * 32767).astype(np.int16)
+
+                    # Save as WAV file
+                    wav_file = output_dir / f"test_{mode}_{speaker_name}.wav"
+                    with wave.open(str(wav_file), "wb") as wav:
+                        wav.setnchannels(1)  # mono
+                        wav.setsampwidth(2)  # 16-bit
+                        wav.setframerate(sample_rate)
+                        wav.writeframes(audio_int16.tobytes())
+
+                    _LOGGER.info(f"   ✓ Saved to: {wav_file.absolute()}")
             else:
                 _LOGGER.warning(
                     f"   ⚠ ref_audio not found at: {ref_audio}, skipping generation test"

@@ -33,14 +33,14 @@ dependencies = [
 Homepage = "http://github.com/rhasspy/wyoming-qwen"
 
 [project.scripts]
-wyoming-qwen = "wyoming_piper.__main__:run"
+wyoming-qwen = "wyoming_qwen.__main__:run"
 
 [tool.setuptools.packages.find]
-include = ["wyoming_piper"]
+include = ["wyoming_qwen"]
 exclude = ["tests", "tests.*"]
 
 [tool.setuptools.package-data]
-wyoming_piper = ["speakers.json"]
+wyoming_qwen = ["speakers.json"]
 
 [build-system]
 requires = ["setuptools>=42", "wheel"]

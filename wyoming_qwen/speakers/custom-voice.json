@@ -3,54 +3,63 @@
     "name": "Ryan",
     "gender": "male",
     "languages": ["English"],
-    "description": "Dynamic male voice with strong rhythmic drive"
+    "description": "Dynamic male voice with strong rhythmic drive",
+    "instruct": ""
   },
   "Aiden": {
     "name": "Aiden",
     "gender": "male",
     "languages": ["English"],
-    "description": "Sunny American male, clear midrange"
+    "description": "Sunny American male, clear midrange",
+    "instruct": ""
   },
   "Vivian": {
     "name": "Vivian",
     "gender": "female",
     "languages": ["Chinese", "English"],
-    "description": "Bright, slightly edgy young female voice"
+    "description": "Bright, slightly edgy young female voice",
+    "instruct": ""
   },
   "Serena": {
     "name": "Serena",
     "gender": "female",
     "languages": ["Chinese"],
-    "description": "Warm, gentle young female voice"
+    "description": "Warm, gentle young female voice",
+    "instruct": ""
   },
   "Uncle_Fu": {
     "name": "Uncle_Fu",
     "gender": "male",
     "languages": ["Chinese"],
-    "description": "Seasoned male with low, mellow timbre"
+    "description": "Seasoned male with low, mellow timbre",
+    "instruct": ""
   },
   "Dylan": {
     "name": "Dylan",
     "gender": "male",
     "languages": ["Chinese"],
-    "description": "Youthful Beijing male, clear and natural"
+    "description": "Youthful Beijing male, clear and natural",
+    "instruct": ""
   },
   "Eric": {
     "name": "Eric",
     "gender": "male",
     "languages": ["Chinese"],
-    "description": "Lively Chengdu male, slightly husky"
+    "description": "Lively Chengdu male, slightly husky",
+    "instruct": ""
   },
   "Ono_Anna": {
     "name": "Ono_Anna",
     "gender": "female",
     "languages": ["Japanese"],
-    "description": "Playful Japanese female, light and nimble"
+    "description": "Playful Japanese female, light and nimble",
+    "instruct": ""
   },
   "Sohee": {
     "name": "Sohee",
     "gender": "female",
     "languages": ["Korean"],
-    "description": "Warm Korean female with rich emotion"
+    "description": "Warm Korean female with rich emotion",
+    "instruct": "빠르고 경쾌한 톤으로 말해줘."
   }
 }

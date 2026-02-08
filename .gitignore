@@ -17,3 +17,6 @@ __pycache__/
 
 /dist/
 /g2pW/
+
+output/
+references/

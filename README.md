@@ -15,7 +15,9 @@
 ## Features
 
 - 🚀 **Fast inference** on Apple Silicon with MLX optimization
-- 🎙️ **9 preset speakers** supporting English, Chinese, Japanese, and Korean
+- 🎙️ **Multiple voice modes**: Custom voices, voice design, and voice cloning
+- 🎨 **9 preset speakers** supporting English, Chinese, Japanese, and Korean
+- 🔊 **Voice cloning** from reference audio samples
 - 🌍 **Multilingual support**: English, Chinese (Mandarin), Japanese, Korean
 - 🔌 **Wyoming protocol** compatible with Home Assistant
 - ⚡ **Real-time streaming** with sentence-level chunking
@@ -69,20 +71,46 @@ bash script/setup
 
 ## Usage
 
+### Voice Modes
+
+Wyoming-Qwen supports three voice modes:
+
+1. **Custom Voice** (default): Use preset speakers with emotion control
+2. **Voice Design**: Create custom voices from text descriptions
+3. **Voice Cloning**: Clone voices from reference audio samples
+
 ### Start the Server
+
+**Custom Voice Mode (default):**
 
 ```bash
 source .venv/bin/activate
-wyoming-qwen --speaker Ryan --data-dir /tmp/wyoming-qwen --uri tcp://0.0.0.0:10200
+wyoming-qwen --data-dir /tmp/wyoming-qwen --uri tcp://0.0.0.0:10200
+```
+
+**Voice Design Mode:**
+
+```bash
+wyoming-qwen --voice-design --data-dir /tmp/wyoming-qwen --uri tcp://0.0.0.0:10200
+```
+
+**Voice Cloning Mode:**
+
+```bash
+wyoming-qwen --clone-voice --data-dir /tmp/wyoming-qwen --uri tcp://0.0.0.0:10200
 ```
 
 ### Command-Line Options
 
 ```text
 Required:
-  --speaker SPEAKER       Default speaker (Ryan, Vivian, Aiden, etc.)
   --data-dir DIR          Directory for model cache
   --uri URI               Server URI (tcp://host:port or stdio://)
+
+Voice Mode (mutually exclusive):
+  --voice-design          Use voice design mode (speakers/voice-design.json)
+  --clone-voice           Use voice cloning mode (speakers/clone-voice.json)
+                          (default mode is custom-voice if neither specified)
 
 Optional:
   --temperature FLOAT     Synthesis temperature (default: 0.9)
@@ -96,25 +124,64 @@ Optional:
   --debug                 Enable debug logging
 ```
 
+### Configuring Speakers
+
+Each voice mode uses a separate JSON configuration file in the `wyoming_qwen/speakers/` directory:
+
+- `custom-voice.json`: Preset speakers (Ryan, Vivian, etc.)
+- `voice-design.json`: Custom designed voices
+- `clone-voice.json`: Voice cloning configurations
+
+**Example speaker configuration:**
+
+```json
+{
+  "SpeakerName": {
+    "name": "SpeakerName",
+    "gender": "male",
+    "languages": ["English"],
+    "description": "Voice description",
+    "instruct": "Speak with a warm tone",
+    "temperature": 0.9,
+    "top_k": 50,
+    "top_p": 1.0,
+    "repetition_penalty": 1.05,
+    "max_tokens": 4096
+  }
+}
+```
+
+**For voice cloning, add reference audio:**
+
+```json
+{
+  "ClonedVoice": {
+    "name": "ClonedVoice",
+    "languages": ["English"],
+    "ref_audio": "/path/to/reference.wav",
+    "ref_text": "Transcript of the reference audio"
+  }
+}
+```
+
 ### Examples
 
-**English TTS:**
+**Using preset custom voices:**
 
 ```bash
-wyoming-qwen --speaker Ryan --data-dir /data --uri tcp://0.0.0.0:10200
+wyoming-qwen --data-dir /data --uri tcp://0.0.0.0:10200
 ```
 
-**Chinese TTS:**
+**Voice design with custom characteristics:**
 
 ```bash
-wyoming-qwen --speaker Vivian --data-dir /data --uri tcp://0.0.0.0:10200
+wyoming-qwen --voice-design --data-dir /data --uri tcp://0.0.0.0:10200
 ```
 
-**Custom parameters:**
+**Voice cloning from reference audio:**
 
 ```bash
-wyoming-qwen --speaker Ryan --data-dir /data --uri tcp://0.0.0.0:10200 \
-  --temperature 1.2 --top-k 30 --repetition-penalty 1.1
+wyoming-qwen --clone-voice --data-dir /data --uri tcp://0.0.0.0:10200
 ```
 
 ## Home Assistant Integration
@@ -138,14 +205,23 @@ Or use the Wyoming integration in the UI:
 
 ### Using Different Speakers
 
+Select speakers dynamically through Home Assistant:
+
 ```yaml
 tts:
   - platform: wyoming
-    name: "Ryan TTS"
-    speaker: Ryan
-  - platform: wyoming
-    name: "Vivian TTS"
-    speaker: Vivian
+    # Speakers are automatically discovered from the active voice mode
+```
+
+Or specify explicitly:
+
+```yaml
+service: tts.speak
+data:
+  entity_id: tts.wyoming
+  message: "Hello world"
+  options:
+    voice: "Ryan"  # or any speaker from your active mode's JSON file
 ```
 
 ## Performance
@@ -186,8 +262,16 @@ Try adjusting synthesis parameters:
 
 ### Running Tests
 
+Test all voice modes:
+
 ```bash
 source .venv/bin/activate
+python test_modes.py
+```
+
+Run unit tests:
+
+```bash
 pytest tests/
 ```
 

@@ -21,12 +21,12 @@ from wyoming.tts import (
     SynthesizeStopped,
 )
 
-from .const import MLX_MODEL_PATH, MLX_SAMPLE_RATE
+from .const import MLX_MODEL_PATHS, MLX_SAMPLE_RATE
 
 _LOGGER = logging.getLogger(__name__)
 
-# Keep the model loaded (lazy loading)
-_MODEL: Optional[Any] = None
+# Keep models loaded per voice mode (lazy loading)
+_MODELS: Dict[str, Any] = {}
 _MODEL_LOCK = asyncio.Lock()
 
 
@@ -38,6 +38,7 @@ class Qwen3EventHandler(AsyncEventHandler):
         wyoming_info: Info,
         cli_args: argparse.Namespace,
         speakers_info: Dict[str, Any],
+        voice_mode: str,
         *args,
         **kwargs,
     ) -> None:
@@ -46,6 +47,7 @@ class Qwen3EventHandler(AsyncEventHandler):
         self.cli_args = cli_args
         self.wyoming_info_event = wyoming_info.event()
         self.speakers_info = speakers_info
+        self.voice_mode = voice_mode
         self.is_streaming: Optional[bool] = None
         self.sbd = SentenceBoundaryDetector()
         self._synthesize: Optional[Synthesize] = None
@@ -148,7 +150,7 @@ class Qwen3EventHandler(AsyncEventHandler):
     async def _handle_synthesize(
         self, synthesize: Synthesize, send_start: bool = True, send_stop: bool = True
     ) -> bool:
-        global _MODEL
+        global _MODELS
 
         _LOGGER.debug(synthesize)
 
@@ -175,8 +177,12 @@ class Qwen3EventHandler(AsyncEventHandler):
             speaker_name = synthesize.voice.name
 
         if speaker_name is None:
-            # Default speaker
-            speaker_name = self.cli_args.speaker
+            # No speaker specified - use first available speaker
+            available_speakers = list(self.speakers_info.keys())
+            if not available_speakers:
+                raise ValueError("No speakers available")
+            speaker_name = available_speakers[0]
+            _LOGGER.debug("No speaker specified, using default: %s", speaker_name)
 
         assert speaker_name is not None
 
@@ -187,49 +193,143 @@ class Qwen3EventHandler(AsyncEventHandler):
                 f"Available speakers: {list(self.speakers_info.keys())}"
             )
 
+        # Get speaker configuration
+        speaker_config = self.speakers_info.get(speaker_name, {})
+
         # Get language for speaker
         language = self._get_language_for_speaker(speaker_name)
 
-        # Load model (lazy loading)
+        # Get custom instruct for speaker
+        speaker_instruct = speaker_config.get("instruct", "")
+        instruct_value = speaker_instruct if speaker_instruct else None
+
+        # Get speaker-specific synthesis parameters (with CLI fallbacks)
+        temperature = speaker_config.get("temperature", self.cli_args.temperature)
+        top_k = speaker_config.get("top_k", self.cli_args.top_k)
+        top_p = speaker_config.get("top_p", self.cli_args.top_p)
+        repetition_penalty = speaker_config.get(
+            "repetition_penalty", self.cli_args.repetition_penalty
+        )
+        max_tokens = speaker_config.get("max_tokens", self.cli_args.max_tokens)
+
+        # Load model for current voice mode (lazy loading)
         async with _MODEL_LOCK:
-            if _MODEL is None:
-                _LOGGER.info("Loading Qwen3-TTS model: %s", MLX_MODEL_PATH)
+            if self.voice_mode not in _MODELS:
+                model_path = MLX_MODEL_PATHS[self.voice_mode]
+                _LOGGER.info("Loading Qwen3-TTS model for %s mode: %s", self.voice_mode, model_path)
                 # Import here to avoid issues if mlx not available at module level
                 from mlx_audio.tts.utils import load_model
 
                 loop = asyncio.get_event_loop()
-                _MODEL = await loop.run_in_executor(None, load_model, MLX_MODEL_PATH)
-                _LOGGER.info("Model loaded successfully")
+                _MODELS[self.voice_mode] = await loop.run_in_executor(None, load_model, model_path)
+                _LOGGER.info("Model loaded successfully for %s mode", self.voice_mode)
 
-        assert _MODEL is not None
+        model = _MODELS[self.voice_mode]
+        assert model is not None
 
         # Generate audio
         _LOGGER.debug(
-            "Generating audio: speaker=%s, language=%s, text=%s",
+            "Generating audio: mode=%s, speaker=%s, language=%s, text=%s",
+            self.voice_mode,
             speaker_name,
             language,
             text,
         )
 
+        # Prepare generation parameters
+        gen_params = {
+            "text": text,
+            "language": language,
+            "instruct": instruct_value,
+            "temperature": temperature,
+            "top_p": top_p,
+            "max_tokens": max_tokens,
+            "stream": False,
+            "top_k": top_k,
+            "repetition_penalty": repetition_penalty,
+        }
+
         # Run synthesis in executor to avoid blocking event loop
         loop = asyncio.get_event_loop()
-        results = await loop.run_in_executor(
-            None,
-            lambda: list(
-                _MODEL.generate_custom_voice(
-                    text=text,
-                    speaker=speaker_name,
-                    language=language,
-                    instruct=None,  # Optional emotion/style instruction
-                    temperature=self.cli_args.temperature,
-                    top_p=self.cli_args.top_p,
-                    max_tokens=self.cli_args.max_tokens,
-                    stream=False,
-                    top_k=self.cli_args.top_k,
-                    repetition_penalty=self.cli_args.repetition_penalty,
+
+        if self.voice_mode == "clone-voice":
+            # Voice cloning mode: Base model with generate() function
+            ref_audio = speaker_config.get("ref_audio")
+            ref_text = speaker_config.get("ref_text")
+
+            if not ref_audio or not ref_text:
+                raise ValueError(
+                    f"Speaker '{speaker_name}' in clone-voice mode requires "
+                    f"'ref_audio' and 'ref_text' fields"
                 )
-            ),
-        )
+
+            _LOGGER.debug(
+                "Using Base model generate() with ref_audio=%s, ref_text=%s",
+                ref_audio,
+                ref_text,
+            )
+
+            results = await loop.run_in_executor(
+                None,
+                lambda: list(
+                    model.generate(
+                        text=gen_params["text"],
+                        ref_audio=ref_audio,
+                        ref_text=ref_text,
+                        language=gen_params["language"],
+                        instruct=gen_params["instruct"],
+                    )
+                ),
+            )
+        elif self.voice_mode == "voice-design":
+            # Voice design mode: VoiceDesign model with generate_custom_voice()
+            # Note: VoiceDesign uses instruct for voice characteristics description
+            _LOGGER.debug(
+                "Using VoiceDesign model generate_custom_voice() with speaker=%s",
+                speaker_name,
+            )
+
+            results = await loop.run_in_executor(
+                None,
+                lambda: list(
+                    model.generate_custom_voice(
+                        text=gen_params["text"],
+                        speaker=speaker_name,
+                        language=gen_params["language"],
+                        instruct=gen_params["instruct"],
+                        temperature=gen_params["temperature"],
+                        top_p=gen_params["top_p"],
+                        max_tokens=gen_params["max_tokens"],
+                        stream=gen_params["stream"],
+                        top_k=gen_params["top_k"],
+                        repetition_penalty=gen_params["repetition_penalty"],
+                    )
+                ),
+            )
+        else:
+            # Custom voice mode: CustomVoice model with generate_custom_voice()
+            _LOGGER.debug(
+                "Using CustomVoice model generate_custom_voice() with speaker=%s",
+                speaker_name,
+            )
+
+            results = await loop.run_in_executor(
+                None,
+                lambda: list(
+                    model.generate_custom_voice(
+                        text=gen_params["text"],
+                        speaker=speaker_name,
+                        language=gen_params["language"],
+                        instruct=gen_params["instruct"],
+                        temperature=gen_params["temperature"],
+                        top_p=gen_params["top_p"],
+                        max_tokens=gen_params["max_tokens"],
+                        stream=gen_params["stream"],
+                        top_k=gen_params["top_k"],
+                        repetition_penalty=gen_params["repetition_penalty"],
+                    )
+                ),
+            )
 
         if not results:
             raise RuntimeError("No audio generated")

@@ -1,0 +1,15 @@
+{
+  "Trump": {
+    "name": "Trump",
+    "gender": "male",
+    "languages": ["English"],
+    "description": "Donald J. Trump voice",
+    "ref_audio": "./references/trump_0.wav",
+    "ref_text": "In short, we embarked on a mission to make America great again.",
+    "temperature": 0.9,
+    "top_k": 50,
+    "top_p": 1.0,
+    "repetition_penalty": 1.05,
+    "max_tokens": 4096
+  }
+}

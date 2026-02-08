@@ -34,11 +34,20 @@ async def main() -> None:
         )
 
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--speaker",
-        required=True,
-        help="Default Qwen speaker (Ryan, Vivian, Aiden, etc.)",
+
+    # Voice mode selection (mutually exclusive)
+    voice_mode = parser.add_mutually_exclusive_group()
+    voice_mode.add_argument(
+        "--voice-design",
+        action="store_true",
+        help="Use voice design mode (speakers/voice-design.json)",
     )
+    voice_mode.add_argument(
+        "--clone-voice",
+        action="store_true",
+        help="Use voice cloning mode (speakers/clone-voice.json)",
+    )
+
     parser.add_argument("--uri", default="stdio://", help="unix:// or tcp://")
     parser.add_argument(
         "--zeroconf",
@@ -103,21 +112,28 @@ async def main() -> None:
     )
     _LOGGER.debug(args)
 
-    # Load speaker info
-    speakers_info = load_speakers_json()
+    # Determine voice mode
+    if args.voice_design:
+        voice_mode = "voice-design"
+    elif args.clone_voice:
+        voice_mode = "clone-voice"
+    else:
+        voice_mode = "custom-voice"  # Default mode
 
-    # Validate default speaker
-    if args.speaker not in speakers_info:
+    # Load speaker info for selected mode
+    speakers_info = load_speakers_json(voice_mode)
+
+    if not speakers_info:
         raise ValueError(
-            f"Unknown speaker: {args.speaker}. "
-            f"Available speakers: {list(speakers_info.keys())}"
+            f"No speakers found for mode '{voice_mode}'. "
+            f"Please check speakers/{voice_mode}.json"
         )
 
     # Create Wyoming Info
     voices = [
         TtsVoice(
             name=speaker_name,
-            description=speaker_info["description"],
+            description=speaker_info["name"],
             attribution=Attribution(
                 name="Alibaba Qwen Team", url="https://github.com/QwenLM/Qwen3-TTS"
             ),
@@ -165,6 +181,8 @@ async def main() -> None:
         _LOGGER.debug("Zeroconf discovery enabled")
 
     _LOGGER.info("Ready")
+    _LOGGER.info("Voice mode: %s", voice_mode)
+    _LOGGER.info("Available speakers: %s", list(speakers_info.keys()))
     server_task = asyncio.create_task(
         server.run(
             partial(
@@ -172,6 +190,7 @@ async def main() -> None:
                 wyoming_info,
                 args,
                 speakers_info,
+                voice_mode,
             )
         )
     )

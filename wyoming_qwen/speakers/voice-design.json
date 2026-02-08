@@ -1,0 +1,14 @@
+{
+  "CustomVoice1": {
+    "name": "CustomVoice1",
+    "gender": "female",
+    "languages": ["English"],
+    "description": "Custom designed voice example",
+    "instruct": "Speak with a warm and friendly tone",
+    "temperature": 0.9,
+    "top_k": 50,
+    "top_p": 1.0,
+    "repetition_penalty": 1.05,
+    "max_tokens": 4096
+  }
+}

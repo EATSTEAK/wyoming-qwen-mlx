@@ -1,60 +1,66 @@
 #!/usr/bin/env python3
 import argparse
 import asyncio
-import json
 import logging
-from functools import partial
-from pathlib import Path
+import platform
 import signal
-from typing import Any, Dict, Set
+from functools import partial
 
 from wyoming.info import Attribution, Info, TtsProgram, TtsVoice, TtsVoiceSpeaker
 from wyoming.server import AsyncServer, AsyncTcpServer
 
 from . import __version__
-from .download import ensure_voice_exists, find_voice, get_voices
-from .handler import PiperEventHandler
+from .download import load_speakers_json
+from .handler import Qwen3EventHandler
 
 _LOGGER = logging.getLogger(__name__)
 
 
 async def main() -> None:
     """Main entry point."""
+    # Platform check - MLX requires Apple Silicon
+    if platform.machine() != "arm64":
+        raise RuntimeError(
+            f"wyoming-qwen requires Apple Silicon (M1/M2/M3/M4). "
+            f"Detected platform: {platform.machine()}"
+        )
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--voice",
+        "--speaker",
         required=True,
-        help="Default Piper voice to use (e.g., en_US-lessac-medium)",
+        help="Default Qwen speaker (Ryan, Vivian, Aiden, etc.)",
     )
     parser.add_argument("--uri", default="stdio://", help="unix:// or tcp://")
-    #
     parser.add_argument(
         "--zeroconf",
         nargs="?",
-        const="piper",
-        help="Enable discovery over zeroconf with optional name (default: piper)",
+        const="qwen",
+        help="Enable discovery over zeroconf with optional name (default: qwen)",
     )
-    #
     parser.add_argument(
         "--data-dir",
         required=True,
         action="append",
-        help="Data directory to check for downloaded models",
+        help="Data directory for model cache",
     )
     parser.add_argument(
         "--download-dir",
-        help="Directory to download voices into (default: first data dir)",
+        help="Directory to download models into (default: first data dir)",
     )
-    #
+
+    # Qwen synthesis parameters
+    parser.add_argument("--temperature", type=float, default=0.9, help="Synthesis temperature")
+    parser.add_argument("--top-k", type=int, default=50, help="Top-k sampling")
+    parser.add_argument("--top-p", type=float, default=1.0, help="Top-p (nucleus) sampling")
     parser.add_argument(
-        "--speaker", type=str, help="Name or id of speaker for default voice"
+        "--repetition-penalty", type=float, default=1.05, help="Repetition penalty"
     )
-    parser.add_argument("--noise-scale", type=float, help="Generator noise")
-    parser.add_argument("--length-scale", type=float, help="Phoneme length")
     parser.add_argument(
-        "--noise-w-scale", "--noise-w", type=float, help="Phoneme width noise"
+        "--max-tokens", type=int, default=4096, help="Maximum tokens to generate"
     )
-    #
+
+    # Audio streaming parameters
     parser.add_argument(
         "--auto-punctuation",
         default=".?!。？！．؟",
@@ -66,19 +72,8 @@ async def main() -> None:
         action="store_true",
         help="Disable audio streaming on sentence boundaries",
     )
-    #
-    parser.add_argument(
-        "--update-voices",
-        action="store_true",
-        help="Download latest voices.json during startup",
-    )
-    #
-    parser.add_argument(
-        "--use-cuda",
-        action="store_true",
-        help="Use CUDA if available (requires onnxruntime-gpu)",
-    )
-    #
+
+    # Logging
     parser.add_argument("--debug", action="store_true", help="Log DEBUG messages")
     parser.add_argument(
         "--log-format", default=logging.BASIC_FORMAT, help="Format for log messages"
@@ -100,96 +95,39 @@ async def main() -> None:
     )
     _LOGGER.debug(args)
 
-    # Load voice info
-    voices_info = get_voices(args.download_dir, update_voices=args.update_voices)
+    # Load speaker info
+    speakers_info = load_speakers_json()
 
-    # Resolve aliases for backwards compatibility with old voice names
-    aliases_info: Dict[str, Any] = {}
-    for voice_info in voices_info.values():
-        for voice_alias in voice_info.get("aliases", []):
-            aliases_info[voice_alias] = {"_is_alias": True, **voice_info}
+    # Validate default speaker
+    if args.speaker not in speakers_info:
+        raise ValueError(
+            f"Unknown speaker: {args.speaker}. "
+            f"Available speakers: {list(speakers_info.keys())}"
+        )
 
-    voices_info.update(aliases_info)
+    # Create Wyoming Info
     voices = [
         TtsVoice(
-            name=voice_name,
-            description=get_description(voice_info),
+            name=speaker_name,
+            description=speaker_info["description"],
             attribution=Attribution(
-                name="rhasspy", url="https://github.com/rhasspy/piper"
+                name="Alibaba Qwen Team", url="https://github.com/QwenLM/Qwen3-TTS"
             ),
             installed=True,
             version=None,
-            languages=[
-                voice_info.get("language", {}).get(
-                    "code",
-                    voice_info.get("espeak", {}).get("voice", voice_name.split("_")[0]),
-                )
-            ],
-            speakers=(
-                [
-                    TtsVoiceSpeaker(name=speaker_name)
-                    for speaker_name in voice_info["speaker_id_map"]
-                ]
-                if voice_info.get("speaker_id_map")
-                else None
-            ),
+            languages=[lang.lower() for lang in speaker_info["languages"]],
+            speakers=[TtsVoiceSpeaker(name=speaker_name)],
         )
-        for voice_name, voice_info in voices_info.items()
-        if not voice_info.get("_is_alias", False)
+        for speaker_name, speaker_info in speakers_info.items()
     ]
-
-    custom_voice_names: Set[str] = set()
-    if args.voice not in voices_info:
-        custom_voice_names.add(args.voice)
-
-    for data_dir in args.data_dir:
-        data_dir = Path(data_dir)
-        if not data_dir.is_dir():
-            continue
-
-        for onnx_path in data_dir.glob("*.onnx"):
-            custom_voice_name = onnx_path.stem
-            if custom_voice_name not in voices_info:
-                custom_voice_names.add(custom_voice_name)
-
-    for custom_voice_name in custom_voice_names:
-        # Add custom voice info
-        custom_voice_path, custom_config_path = find_voice(
-            custom_voice_name, args.data_dir
-        )
-        with open(custom_config_path, "r", encoding="utf-8") as custom_config_file:
-            custom_config = json.load(custom_config_file)
-            custom_name = custom_config.get("dataset", custom_voice_path.stem)
-            custom_quality = custom_config.get("audio", {}).get("quality")
-            if custom_quality:
-                description = f"{custom_name} ({custom_quality})"
-            else:
-                description = custom_name
-
-            lang_code = custom_config.get("language", {}).get("code")
-            if not lang_code:
-                lang_code = custom_config.get("espeak", {}).get("voice")
-                if not lang_code:
-                    lang_code = custom_voice_path.stem.split("_")[0]
-
-            voices.append(
-                TtsVoice(
-                    name=custom_name,
-                    description=description,
-                    version=None,
-                    attribution=Attribution(name="", url=""),
-                    installed=True,
-                    languages=[lang_code],
-                )
-            )
 
     wyoming_info = Info(
         tts=[
             TtsProgram(
-                name="piper",
-                description="A fast, local, neural text to speech engine",
+                name="qwen",
+                description="Alibaba Qwen3 Text-to-Speech (MLX)",
                 attribution=Attribution(
-                    name="rhasspy", url="https://github.com/rhasspy/piper"
+                    name="Alibaba Qwen Team", url="https://github.com/QwenLM/Qwen3-TTS"
                 ),
                 installed=True,
                 voices=sorted(voices, key=lambda v: v.name),
@@ -198,13 +136,6 @@ async def main() -> None:
             )
         ],
     )
-
-    # Ensure default voice is downloaded
-    voice_info = voices_info.get(args.voice, {})
-    voice_name = voice_info.get("key", args.voice)
-    assert voice_name is not None
-
-    ensure_voice_exists(voice_name, args.data_dir, args.download_dir, voices_info)
 
     # Start server
     server = AsyncServer.from_uri(args.uri)
@@ -226,10 +157,10 @@ async def main() -> None:
     server_task = asyncio.create_task(
         server.run(
             partial(
-                PiperEventHandler,
+                Qwen3EventHandler,
                 wyoming_info,
                 args,
-                voices_info,
+                speakers_info,
             )
         )
     )
@@ -241,18 +172,6 @@ async def main() -> None:
         await server_task
     except asyncio.CancelledError:
         _LOGGER.info("Server stopped")
-
-
-# -----------------------------------------------------------------------------
-
-
-def get_description(voice_info: Dict[str, Any]):
-    """Get a human readable description for a voice."""
-    name = voice_info["name"]
-    name = " ".join(name.split("_"))
-    quality = voice_info["quality"]
-
-    return f"{name} ({quality})"
 
 
 # -----------------------------------------------------------------------------

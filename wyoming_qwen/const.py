@@ -20,5 +20,6 @@ QWEN_PRESET_SPEAKERS = [
 ]
 
 # MLX-specific constants
+# Using mlx-community converted model for CustomVoice (supports emotion control)
 MLX_MODEL_PATH = "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-bf16"
 MLX_SAMPLE_RATE = 24000  # Hz

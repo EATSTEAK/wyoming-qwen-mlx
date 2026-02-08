@@ -195,10 +195,10 @@ class Qwen3EventHandler(AsyncEventHandler):
             if _MODEL is None:
                 _LOGGER.info("Loading Qwen3-TTS model: %s", MLX_MODEL_PATH)
                 # Import here to avoid issues if mlx not available at module level
-                from mlx_audio.tts import load
+                from mlx_audio.tts.utils import load_model
 
                 loop = asyncio.get_event_loop()
-                _MODEL = await loop.run_in_executor(None, load, MLX_MODEL_PATH)
+                _MODEL = await loop.run_in_executor(None, load_model, MLX_MODEL_PATH)
                 _LOGGER.info("Model loaded successfully")
 
         assert _MODEL is not None
@@ -220,13 +220,13 @@ class Qwen3EventHandler(AsyncEventHandler):
                     text=text,
                     speaker=speaker_name,
                     language=language,
-                    instruct="",
+                    instruct=None,  # Optional emotion/style instruction
                     temperature=self.cli_args.temperature,
-                    top_k=self.cli_args.top_k,
                     top_p=self.cli_args.top_p,
-                    repetition_penalty=self.cli_args.repetition_penalty,
                     max_tokens=self.cli_args.max_tokens,
                     stream=False,
+                    top_k=self.cli_args.top_k,
+                    repetition_penalty=self.cli_args.repetition_penalty,
                 )
             ),
         )
